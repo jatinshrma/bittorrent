@@ -1,46 +1,44 @@
-require("./lib/peerId")
-const fs = require("fs")
-const path = require("path")
-const crypto = require("crypto")
-const bencode = require("./lib/bencode")
-const announceToPeers = require("./lib/announce")
-const handshake = require("./lib/handshake")
+import { readFileSync } from "fs"
+import { createHash } from "crypto"
+import bencode from "./lib/bencode.js"
+import announceToTracker from "./lib/announce/announceToTracker.js"
+import { group } from "./lib/utils.js"
+import handshake from "./lib/handshake.js"
 
-const buf = Uint8Array.prototype.slice.call(fs.readFileSync(path.join(__dirname, "ipfire.torrent")))
+const buf = Uint8Array.prototype.slice.call(readFileSync("ipfire.torrent"))
 
 async function main() {
-	const decodedTorrent = bencode.decode(buf)
-	const infoHash = crypto.createHash("sha1").update(bencode.encode(decodedTorrent.info)).digest("hex")
+	const torrent = bencode.decode(buf)
+	const infoHash = createHash("sha1").update(bencode.encode(torrent.info)).digest("hex")
+	const size = torrent.info.files
+		? torrent.info.files.map(file => file.length).reduce((a, b) => a + b)
+		: torrent.info.length
 
-	let urlEncodedInfoHash = ""
-	for (let i = 0; i < infoHash.length; i += 2) urlEncodedInfoHash += `%${infoHash.slice(i, i + 2)}`
+	const pieceHashes = group(torrent.info.pieces, 20, p => p.toString("hex"))
+	const announceResponse = await announceToTracker(torrent.announce.toString(), infoHash, size)
 
-	const pieceHashes = []
+	console.log("Announce response:", announceResponse)
 
-	for (let index = 0; index < decodedTorrent.info.pieces.length; index += 20)
-		pieceHashes.push(decodedTorrent.info.pieces.slice(index, index + 20).toString("hex"))
-
-	const announceResponse = await announceToPeers({
-		trackerURL: decodedTorrent.announce,
-		urlEncodedInfoHash,
-		length: decodedTorrent.info.length
-	})
-
-	const details = {
-		trackerURL: decodedTorrent.announce.toString(),
-		length: decodedTorrent.info.length,
-		infoHash: infoHash,
-		pieceLength: decodedTorrent.info["piece length"],
-		pieceHashes,
-		...announceResponse
+	for (const address of announceResponse.peers) {
+		try {
+			const response = await handshake({ address, infoHash })
+			if (!response?.error) console.log(response)
+			// else console.error(response.error)
+		} catch (error) {
+			console.log(error)
+		}
 	}
 
-	for (const address of announceResponse.peerIPs.slice(3, 6)) {
-		const response = await handshake({ address, urlEncodedInfoHash })
-		if (!response?.error) console.log(response)
-	}
+	// const details = {
+	// 	trackerURL: decodedTorrent.announce.toString(),
+	// 	length: decodedTorrent.info.length,
+	// 	infoHash: infoHash,
+	// 	pieceLength: decodedTorrent.info["piece length"],
+	// 	pieceHashes,
+	// 	...announceResponse
+	// }
 
-	console.log(details)
+	// console.log(details)
 }
 
 main()
