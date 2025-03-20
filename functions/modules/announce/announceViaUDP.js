@@ -1,7 +1,7 @@
 import dgram from "dgram"
-import peerId from "../peerId.js"
-import { getPeers, port } from "../utils.js"
 import * as crypto from "crypto"
+import peerId from "../../lib/peerId.js"
+import { getPeers, port } from "../../lib/utils.js"
 
 export default function announceViaUDP(rawUrl, infoHash, size) {
 	return new Promise(resolve => {

@@ -1,11 +1,11 @@
 import { Socket } from "net"
-import handler from "./handler.js"
+import helpers from "./helpers.js"
 
 /**
  * @param {Buffer} data
  * @param {Socket} socket
  */
-export default async function download(data, state, closeConnection, socket, params) {
+export default async function dataHandler(data, state, closeConnection, socket, params) {
 	let stateKey
 
 	while (data.length > 0 && (data.length > 4 || state.waitingState !== null)) {
@@ -71,7 +71,7 @@ export default async function download(data, state, closeConnection, socket, par
 					state.unchoked.interestedTimer = null
 				}, 3000)
 
-			const result = await handler(
+			const result = await helpers(
 				stateKey,
 				{
 					data:state[stateKey].received,

@@ -1,6 +1,5 @@
 import * as fs from "fs"
 import { createHash } from "crypto"
-import bencode from "./lib/bencode.js"
 import {
 	batchUp,
 	constants,
@@ -8,12 +7,13 @@ import {
 	createPreAllocatedFile,
 	getState,
 	throttle,
-} from "./lib/utils.js"
-import connectPeer from "./lib/connectPeer.js"
-import announceToTracker from "./lib/announce/announceToTracker.js"
-import findActiveSeeders from "./lib/findActiveSeeders.js"
-import createJobRunner from "./lib/createJobRunner.js"
-import { reconstructFile, reconstructMultiFile } from "./lib/reconstruct.js"
+} from "./functions/lib/utils.js"
+import bencode from "./functions/modules/bencode.js"
+import connectToPeer from "./functions/handlers/connectToPeer.js"
+import findActiveSeeders from "./functions/helpers/findActiveSeeders.js"
+import createJobScheduler from "./functions/modules/jobScheduler.js"
+import { reconstructFile, reconstructMultiFile } from "./functions/modules/reconstruct.js"
+import announceToTracker from "./functions/modules/announce/index.js"
 
 async function main(torrentFilePath) {
 	const buf = fs.readFileSync(torrentFilePath)
@@ -42,18 +42,9 @@ async function main(torrentFilePath) {
 			fs.rmSync(tempFilePath, { recursive: true, force: true })
 		}
 
-		if (torrent.info.files?.length)
-			reconstructMultiFile(
-				tempFilePath,
-				torrent,
-				calllback
-			)
+		if (torrent.info.files?.length) reconstructMultiFile(tempFilePath, torrent, calllback)
 		else if (torrent.info.name)
-			reconstructFile(
-				tempFilePath,
-				createDir(`downloads/${torrent.info.name}`),
-				calllback
-			)
+			reconstructFile(tempFilePath, createDir(`downloads/${torrent.info.name}`), calllback)
 	}
 
 	let {
@@ -61,15 +52,24 @@ async function main(torrentFilePath) {
 		unProcessedBitfields = [],
 		indexesLib = Array(pieceCount).fill(true),
 		piecesTrack = {},
+		activePeers,
 	} = fs.existsSync(progressFilePath) ? JSON.parse(fs.readFileSync(progressFilePath)) : {}
 
+	if (!activePeers?.length) {
+		const announceResponse = await announceToTracker(torrent.announce.toString(), infoHash, size)
+		const { peers } = await findActiveSeeders(announceResponse.peers, infoHash)
+		activePeers = peers
+	}
+
 	if (receivedBlocks > 0) {
-		const incompletePieceIndex = +Object.keys(piecesTrack).find(
+		const incompletePieceIndexes = +Object.keys(piecesTrack).filter(
 			(i) => piecesTrack[i].size > piecesTrack[i].receivedSize
 		)
-		if (!isNaN(incompletePieceIndex)) {
-			console.log({ incompletePieceIndex })
-			indexesLib[incompletePieceIndex] = true
+		if (incompletePieceIndexes.length) {
+			console.log({ incompletePieceIndex: incompletePieceIndexes })
+			for (const index of incompletePieceIndexes) {
+				indexesLib[index] = true
+			}
 		} else {
 			reconstruct()
 			return
@@ -77,7 +77,7 @@ async function main(torrentFilePath) {
 	}
 
 	const getPieceSize = (i) => (i === pieceCount - 1 ? lastPieceLength : pieceLength)
-	const getIndexes = createJobRunner(indexesLib, unProcessedBitfields)
+	const getIndexes = createJobScheduler(indexesLib, unProcessedBitfields)
 	const saveProgressLog = throttle(() => {
 		fs.writeFileSync(
 			progressFilePath,
@@ -86,9 +86,12 @@ async function main(torrentFilePath) {
 				unProcessedBitfields,
 				indexesLib,
 				piecesTrack,
+				activePeers,
 			})
 		)
 	}, 5000)
+
+	const print = throttle((...args) => console.log(...args), 1000)
 
 	const fd = fs.openSync(tempFilePath, "r+")
 	const writeToFile = (buffer, pieceIndex, offset, completion) => {
@@ -96,7 +99,7 @@ async function main(torrentFilePath) {
 		try {
 			receivedBlocks++
 			const total = +((receivedBlocks * 100) / totalBlocksCount).toFixed(2)
-			console.log(`⌛ Downloaded piece: ${pieceIndex} [${completion}%] - ${total}%`)
+			print(`⌛ Downloaded piece: ${pieceIndex} [${completion}%] - ${total}%`)
 
 			fs.writeSync(fd, buffer, 0, buffer.length, position)
 
@@ -107,25 +110,21 @@ async function main(torrentFilePath) {
 		}
 	}
 
-	const announceResponse = await announceToTracker(torrent.announce.toString(), infoHash, size)
-
-	const { peers } = await findActiveSeeders(announceResponse.peers, infoHash)
-
 	let inProgress = 0
 
 	while (receivedBlocks < totalBlocksCount) {
 		console.log(receivedBlocks, totalBlocksCount)
 		await Promise.all(
-			peers
+			activePeers
 				.filter((i) => !i.failed && !i.inProgress)
 				.map(async (peer) => {
-					if (!indexesLib.includes(true)) return console.log(indexesLib)
+					if (!indexesLib.includes(true)) return
 					const state = getState(pieceLength, pieceCount, getPieceSize)
 					try {
 						peer.inProgress = true
 						inProgress++
 
-						await connectPeer({
+						await connectToPeer({
 							peer,
 							infoHash,
 							pieceCount,
@@ -139,7 +138,7 @@ async function main(torrentFilePath) {
 						const unfulfilledIdxs = state.assignedIndexes.filter((i) => typeof i === "number")
 						console.error("Error:", error, { unfulfilledIdxs }, "Active calls: ", inProgress)
 						if (unfulfilledIdxs.length) {
-							peer.failed = true
+							// peer.failed = true
 							for (const idx of unfulfilledIdxs) indexesLib[idx] = true
 						}
 					}

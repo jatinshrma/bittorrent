@@ -1,4 +1,4 @@
-function jobRunnerModel(flagsLib, jobs, onEnd) {
+function jobRunner(flagsLib, jobs, onEnd) {
     let job = jobs.shift()
     while (job !== undefined) {
         const allocatedIndexes = []
@@ -18,7 +18,7 @@ function jobRunnerModel(flagsLib, jobs, onEnd) {
     onEnd()
 }
 
-export default function createJobRunner(flagsLib, jobs) {
+export default function createJobScheduler(flagsLib, jobs) {
     let running = false
     return (data) => new Promise((res, rej) => {
         jobs.push({
@@ -28,7 +28,7 @@ export default function createJobRunner(flagsLib, jobs) {
 
         if (!running) {
             running = true
-            jobRunnerModel(flagsLib, jobs, () => (running = false))
+            jobRunner(flagsLib, jobs, () => (running = false))
         }
     })
 }

@@ -1,8 +1,8 @@
 import { Socket } from "net"
-import download from "./download.js"
-import { buildHandshake } from "./handler.js"
+import dataHandler from "./dataHandler.js"
+import { buildHandshake } from "./helpers.js"
 
-export default function connectPeer({
+export default function connectToPeer({
 	peer,
 	infoHash,
 	handshake = true,
@@ -38,7 +38,7 @@ export default function connectPeer({
 					timer = null
 				}
 
-				download(data, state, closeConnection, socket, params)
+				dataHandler(data, state, closeConnection, socket, params)
 			})
 
 			socket.write(buildHandshake(infoHash))

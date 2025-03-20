@@ -1,4 +1,4 @@
-import connectPeer from "./connectPeer.js"
+import connectToPeer from "../handlers/connectToPeer.js"
 
 export default async function findActiveSeeders(peers, infoHash) {
 	const maxConcurrent = 25
@@ -8,7 +8,7 @@ export default async function findActiveSeeders(peers, infoHash) {
 	for (i; i < peers.length; i += maxConcurrent) {
 		const batch = peers.slice(i, i + maxConcurrent)
 		const results = await Promise.allSettled(
-			batch.map(peer => connectPeer({ peer, infoHash, handshake: false }))
+			batch.map(peer => connectToPeer({ peer, infoHash, handshake: false }))
 		)
 
 		activePeers.push(...results.filter(res => res.status === "fulfilled").map(res => res.value))

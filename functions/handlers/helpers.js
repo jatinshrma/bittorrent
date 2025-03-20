@@ -1,5 +1,5 @@
-import peerId from "./peerId.js"
-import { constants } from "./utils.js"
+import peerId from "../lib/peerId.js"
+import { constants } from "../lib/utils.js"
 
 export function buildHandshake(infoHash) {
 	const buf = Buffer.alloc(68)
@@ -118,7 +118,6 @@ function onPieceResp({ data, socket, params, closeConnection }) {
 		if (!remainingIdxs?.length) {
 			getIndexes(state.bitfield.received)
 				.then((indexes) => {
-					console.log("Re-assigned indexes", indexes)
 					if (!indexes.filter((i) => typeof i === "number").length)
 						closeConnection("No indexes available at the moment.")
 
@@ -134,7 +133,7 @@ function onPieceResp({ data, socket, params, closeConnection }) {
 	writeToFile(block, index, offset, complition)
 }
 
-export default function handler(type, args) {
+export default function respHandler(type, args) {
 	switch (type) {
 		case "handshake":
 			return onHandshakeResp(args)
